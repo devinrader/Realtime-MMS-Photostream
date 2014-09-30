@@ -1,81 +1,82 @@
-var app = require('express')();
-var twilio = require('twilio');    
-var http = require('http').Server(app);
-var io = require('socket.io')(http);
-var bodyParser = require('body-parser');
+var Hapi = require('hapi')
+  , path = require('path')
+  , socketio = require('socket.io')
+  , twilio = require('twilio')
+  , io;
 
-app.use(bodyParser.urlencoded({ extended: true }));
+var server = Hapi.createServer('localhost', process.env.PORT || 3000);
 
-app.get('/', function(req, res){
-  res.sendfile('static/index.html');
-});
 
-app.post('/log', function(req, res) {
-    console.log("Received status callback...");
-    var client = new twilio.RestClient(process.env.TWILIO_ACCOUNT_SID,
-                                       process.env.TWILIO_AUTH_TOKEN);
-    var status = req.body.MessageStatus;
-    var sid = req.body.MessageSid;
-
-    if (status == 'delivered') {
-        client.messages(sid).media.list(function(err, response) {
-            if (err) {
-                res.json("{'status': 'Error'}");
-            }
-            response.mediaList.forEach(function(media) {
-                io.emit('new_media', "https://api.twilio.com/" + media.uri.replace('.json', ''));
-            });
-        });
+/**
+ * Handler for /log route
+ */
+var logRoute = function(req, reply) {
+  
+  var sid = req.payload.MessageSid;
+  console.log("Received message with Sid="+sid);
+  var client = new twilio.RestClient();
+  client.messages(sid).media.list(function(err, response) {
+    if (err) {
+      reply({'status': 'Error'});
     }
-    
-    if (status == 'failed') {
-        io.emit('error', "An error occured.");
-    }
-    res.json("{'status': 'OK'}");
-});
-
-function streamImagesToNewUser(id) {
-    var client = new twilio.RestClient(process.env.TWILIO_ACCOUNT_SID,
-                                       process.env.TWILIO_AUTH_TOKEN);
-    client.messages.get({from: process.env.TWILIO_CALLER_ID,
-                        status: 'delivered',
-                        num_media: 1,
-                        PageSize: 100}, function(err, response) {
-        if (err) {
-            res.status(500);
-            res.json(err);
-        } else {
-            response.messages.forEach(function(message) {
-                if (message.num_media != '0') {
-                    client.messages(message.sid).media.list(function(err, response) {
-                        if (err) {
-                        } else {
-                            response.mediaList.forEach(function(media) {
-                                url = "https://api.twilio.com/" + media.uri.replace('.json', '');
-                                io.to(id).emit('loading_media', "https://api.twilio.com/" + media.uri.replace('.json', ''));
-                            });
-                        }
-                    });
-                }
-            });
-        }
+    response.mediaList.forEach(function(media) {
+      io.emit('new_media', "https://api.twilio.com/" + media.uri.replace('.json', ''));
     });
+  });
+
+  reply({'status': 'OK'});
+};
+
+/**
+ * When a browser connects via socket.io, stream the current set of photos
+ */
+function streamImagesToNewUser(id) {
+  var client = new twilio.RestClient();
+  client.messages.get({
+    to: process.env.TWILIO_CALLER_ID, 
+    num_media: 1,
+    PageSize: 100}, function(err, response) {
+      if (err) {
+        console.log(err);
+      } else {
+        response.messages.forEach(function(message) {
+          if (message.num_media != '0') {
+            client.messages(message.sid).media.list(function(err, response) {
+              if (err) {
+                console.log(err);
+              } else {
+                response.mediaList.forEach(function(media) {
+                  if (media.contentType !== null && media.contentType.indexOf('image') >= 0) {
+                    url = "https://api.twilio.com/" + media.uri.replace('.json', '');
+                    console.log("Sending this image URL to the browser: " + url);
+                    io.to(id).emit('new_media', url);
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+  });
 }
 
-io.on('connection', function(socket){
-  io.to(socket.id).emit('connected', 'Connected!');
+server.route([{
+  method: 'POST', path: '/log', handler: logRoute }, {
+  method: 'GET', path: '/{p*}',
+    handler: {
+      directory: { path: './static', listing: false, index: true }
+    } 
+  }
+]);
 
-  streamImagesToNewUser(socket.id);
+server.start(function () {
+  io = socketio.listen(server.listener);
 
-  socket.on('new_media', function(url){
-    io.emit('stash', url);
+  io.on('connection', function(socket){
+    io.to(socket.id).emit('connected', 'Connected!');
+    streamImagesToNewUser(socket.id); 
   });
 
-  socket.on('error', function(err){
-    io.emit('error', err);
-  });
+  console.log("Listening on port 3000");
 });
 
-http.listen(3000, function(){
-  console.log('listening on *:3000');
-});
