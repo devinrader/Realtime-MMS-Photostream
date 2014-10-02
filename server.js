@@ -4,12 +4,11 @@ var Hapi = require('hapi')
   , twilio = require('twilio')
   , io;
 
-var port = process.env.PORT || 1337;
-
-console.log(port);
-
-var server = Hapi.createServer('0.0.0.0', port);
-
+var server = Hapi.createServer('0.0.0.0');
+if (process.env.port)
+    hapi_server._port = process.env.port
+else
+    hapi_server._port = 3000;
 
 /**
  * Handler for /log route
