@@ -4,7 +4,7 @@ var Hapi = require('hapi')
   , twilio = require('twilio')
   , io;
 
-var server = Hapi.createServer('0.0.0.0', 80);
+var server = Hapi.createServer('0.0.0.0', process.env.PORT || 1337);
 
 
 /**
