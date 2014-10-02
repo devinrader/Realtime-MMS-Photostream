@@ -6,9 +6,9 @@ var Hapi = require('hapi')
 
 var server = Hapi.createServer('0.0.0.0');
 if (process.env.port)
-    hapi_server._port = process.env.port
+    server._port = process.env.port
 else
-    hapi_server._port = 3000;
+    server._port = 3000;
 
 /**
  * Handler for /log route
